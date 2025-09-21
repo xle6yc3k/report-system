@@ -1,0 +1,58 @@
+.vs/
+.vspscc
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+[Aa]rm/
+[Aa]rm64/
+[Dd]ist/
+[Ll]og/
+bin/
+obj/
+
+# NuGet packages
+packages/
+*.nupkg
+.nuget/NuGet/
+
+# Rider
+.idea/
+
+# .NET
+.DS_Store
+*.pdb
+*.suo
+*.user
+*.suo
+*.user
+*.pdb
+*.dll
+*.exe
+*.log
+[Ll]og/
+[Cc]ertificates/
+[Kk]ey/
+[Tt]emp/
+[Tt]emp*.tmp
+[Tt]emp*.tmp.*
+[Oo]utput/
+[Tt]humb.db
+[Nn]uget.config
+[Nn]uget.props
+[Pp]roject.assets.json
+[Tt]estsResults/
+[Cc]overage/
+.vs
+.vscode
+.gitkeep
+.DS_Store
+
+# User Secrets
+appsettings.json
+appsettings.*.json
+appsettings.Development.json

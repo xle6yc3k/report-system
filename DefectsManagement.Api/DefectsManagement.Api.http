@@ -1,0 +1,6 @@
+@DefectsManagement.Api_HostAddress = http://localhost:5143
+
+GET {{DefectsManagement.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
