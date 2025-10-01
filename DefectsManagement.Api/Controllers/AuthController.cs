@@ -69,43 +69,40 @@ public class AuthController : ControllerBase
         return Ok(new { token });
     }
     
-    // Временный метод для создания тестовых пользователей
-    // В реальном приложении это делается через регистрацию или админ-панель
-    [HttpPost("seed-users")]
-    [AllowAnonymous]
-    public async Task<IActionResult> SeedUsers()
+    [HttpPost("create-user")]
+    [Authorize(Roles = "Observer")]
+    public async Task<IActionResult> CreateUser([FromBody] CreateUserModel model)
     {
-        var existingUsers = _context.Users.Any();
-        if (existingUsers)
+            var existingUser = _context.Users.Any(u => u.Username == model.Username);
+        if (existingUser)
         {
-            return BadRequest("Пользователи уже созданы.");
+            return BadRequest($"Пользователь с логином '{model.Username}' уже существует.");
         }
 
-        _context.Users.Add(new User
+        var allowedRoles = new[] { "Engineer", "Manager", "Observer" };
+        if (!allowedRoles.Contains(model.Role))
         {
-            Name = "Engineer 1",
-            Username = "engineer",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("engineer_password"),
-            Role = "Engineer"
-        });
+            return BadRequest($"Недопустимая роль. Разрешены: {string.Join(", ", allowedRoles)}");
+        }
 
-        _context.Users.Add(new User
+        var newUser = new User
         {
-            Name = "Manager 1",
-            Username = "manager",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("manager_password"),
-            Role = "Manager"
-        });
+            Name = model.Name,
+            Username = model.Username,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(model.Password),
+            Role = model.Role
+        };
 
-        _context.Users.Add(new User
-        {
-            Name = "Observer 1",
-            Username = "observer",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("observer_password"),
-            Role = "Observer"
-        });
-
+        _context.Users.Add(newUser);
         await _context.SaveChangesAsync();
-        return Ok("Тестовые пользователи успешно созданы.");
+        
+        return Ok(new 
+        { 
+            Message = "Пользователь успешно создан.", 
+            Id = newUser.Id, 
+            newUser.Name, 
+            newUser.Username, 
+            newUser.Role 
+        });
     }
 }
