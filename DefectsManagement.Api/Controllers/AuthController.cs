@@ -31,6 +31,7 @@ public class AuthController : ControllerBase
 
         var claims = new[]
         {
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Sub, user.Username),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
@@ -51,6 +52,17 @@ public class AuthController : ControllerBase
     {
         public required string Username { get; set; }
         public required string Password { get; set; }
+    }
+
+    // Controllers/AuthController.cs
+
+    [HttpGet("get-password-hash/{password}")]
+    [AllowAnonymous]
+    public IActionResult GetPasswordHash(string password)
+    {
+        // Генерируем хэш для любого переданного пароля
+        var hash = BCrypt.Net.BCrypt.HashPassword(password);
+        return Ok(new { passwordHash = hash });
     }
 
     [HttpPost("login")]

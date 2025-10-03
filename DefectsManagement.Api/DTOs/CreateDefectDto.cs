@@ -1,14 +1,14 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace DefectsManagement.Api.DTO;
+namespace DefectsManagement.Api.DTOs;
 
 public class CreateDefectDto
 {
     [Required(ErrorMessage = "Заголовок дефекта обязателен.")]
     public required string Title {get; set;}
-    [Required(ErorMessage = "Описание дефекта обязательно.")]
+    [Required(ErrorMessage = "Описание дефекта обязательно.")]
     public required string Description {get; set;}
     [Required(ErrorMessage = "Приоритет дефекта обязателен.")]
     public required string Priority {get; set;}
-    public int? AssigneId {get; set;}
+    public int? AssigneeId {get; set;}
 }

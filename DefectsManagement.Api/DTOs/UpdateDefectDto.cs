@@ -1,6 +1,6 @@
-namespace DefectsManagement.Api.DTO;
+namespace DefectsManagement.Api.DTOs;    
 
-public class UpdateDefectDTO
+public class UpdateDefectDto
 {
     public string? Title {get; set;}
     public string? Description {get; set;}

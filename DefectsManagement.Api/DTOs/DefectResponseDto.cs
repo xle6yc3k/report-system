@@ -1,5 +1,3 @@
-namespace DefectsManagement.Api.DTO;
-
 namespace DefectsManagement.Api.DTOs;
 
 public class DefectResponseDto
