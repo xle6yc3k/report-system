@@ -6,77 +6,83 @@ import router from '@/router';
 
 // Типы данных
 export interface UserInfo {
-    id: number;
+    id: number; // Соответствует вашему int ID в БД
     username: string;
-    name: string;
+    // name: string; // Удалено, так как JWT не всегда содержит name, но содержит username.
     role: 'Engineer' | 'Manager' | 'Observer' | 'Admin';
 }
 export interface AuthState {
-    token: string | null;
+    // УДАЛЕНО: token: string | null;
     userInfo: UserInfo | null;
+    isAuthenticated: boolean; // Добавляем явно, чтобы не зависеть от token
 }
 
-// Вспомогательная функция для декодирования JWT-токена
-const decodeToken = (token: string): UserInfo | null => {
-    try {
-        const payloadBase64 = token.split('.')[1];
-        if (!payloadBase64) throw new Error('Invalid token format');
-        const decoded = JSON.parse(atob(payloadBase64));
-
-        return {
-            id: Number(decoded.nameid), 
-            username: decoded.sub,      
-            name: decoded.name || decoded.sub, 
-            role: decoded.role as UserInfo['role'],
-        };
-    } catch (e) {
-        console.error('Ошибка при декодировании токена:', e);
-        return null;
-    }
-};
+// УДАЛЯЕМ вспомогательную функцию decodeToken, т.к. мы больше не декодируем токен на фронте.
+// const decodeToken = (token: string): UserInfo | null => { ... };
 
 
 export const useAuthStore = defineStore('auth', {
     state: (): AuthState => ({
-        // Загружаем токен из localStorage при старте
-        token: localStorage.getItem('jwt_token') || null,
+        // УДАЛЕНО: token: localStorage.getItem('jwt_token') || null,
         userInfo: null,
+        isAuthenticated: false, // Изначально не аутентифицирован
     }),
     
     getters: {
-        isAuthenticated: (state) => !!state.token,
+        // УДАЛЕНО: isAuthenticated: (state) => !!state.token,
         userRole: (state) => state.userInfo?.role,
     },
 
     actions: {
-        // Инициализация при старте приложения
-        initialize() {
-            if (this.token) {
-                this.userInfo = decodeToken(this.token);
+        // НОВОЕ: Метод для получения информации о пользователе с сервера
+        async fetchUserInfo() {
+            try {
+                const response = await apiClient.get('/User/me');
+                this.userInfo = response.data as UserInfo;
+                this.isAuthenticated = true; // Успешно получили данные = аутентифицированы
+            } catch (e) {
+                // Если запрос к /User/me не удался (например, 401), значит куки не действительны.
+                this.logout();
             }
+        },
+
+        // Обновляем initialize
+        initialize() {
+            // Теперь мы всегда проверяем состояние аутентификации на сервере
+            // при загрузке приложения.
+            this.fetchUserInfo(); 
         },
 
         async login(username: string, password: string) {
             try {
-                const response = await apiClient.post('/Auth/login', { username, password });
-                const token = response.data.token;
+                // 1. Отправляем запрос на вход. Сервер установит куку.
+                await apiClient.post('/Auth/login', { username, password });
+                
+                // 2. Если запрос успешен, делаем второй запрос, чтобы получить данные пользователя
+                // и подтвердить, что кука была принята браузером и отправлена обратно.
+                await this.fetchUserInfo(); 
 
-                if (token) {
-                    this.token = token;
-                    this.userInfo = decodeToken(token);
-                    localStorage.setItem('jwt_token', token);
-                    router.push('/');
-                }
+                // 3. Если все прошло успешно, переходим на главную
+                router.push('/');
+                
             } catch (error: any) {
                 console.error('Ошибка входа:', error.response?.data || error.message);
+                
+                // Убедимся, что состояние сброшено в случае неудачи
+                this.isAuthenticated = false; 
+                this.userInfo = null; 
+
                 throw new Error(error.response?.data?.message || 'Неверный логин или пароль');
             }
         },
 
         logout() {
-            this.token = null;
+            // Опционально: можно добавить запрос к API для удаления куки на стороне сервера
+            // apiClient.post('/Auth/logout'); 
+            
             this.userInfo = null;
-            localStorage.removeItem('jwt_token');
+            this.isAuthenticated = false; // Очищаем состояние
+            // УДАЛЕНО: localStorage.removeItem('jwt_token'); 
             router.push('/login');
         }
     },
