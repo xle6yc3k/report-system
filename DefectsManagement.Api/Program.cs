@@ -1,5 +1,6 @@
 using DefectsManagement.Api.Data;
 using DefectsManagement.Api.Services;
+using DefectsManagement.Api.Infrastructure.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -25,10 +26,15 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
+
+builder.Services.AddControllers()
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.Converters.Add(new DateOnlyJsonConverter());
+    });
 
 // --- 2. Swagger + JWT ---
 builder.Services.AddSwaggerGen(options =>
