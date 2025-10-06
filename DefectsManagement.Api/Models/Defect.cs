@@ -3,31 +3,33 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace DefectsManagement.Api.Models;
 
-// Модель для хранения информации о дефектах
 public class Defect
 {
-    // Уникальный идентификатор дефекта
-    public int Id { get; set; }
+    [Key] public Guid Id { get; set; } = Guid.NewGuid();
 
-    // Заголовок дефекта
-    public string Title { get; set; }
+    [Required] public Guid ProjectId { get; set; }
+    [ForeignKey(nameof(ProjectId))] public Project Project { get; set; } = null!;
 
-    // Полное описание дефекта
-    public string Description { get; set; }
+    [Required, MaxLength(200)] public string Title { get; set; } = null!;
+    [Required, MaxLength(10_000)] public string Description { get; set; } = null!;
 
-    // Приоритет дефекта: Low, Medium, High
-    public string Priority { get; set; }
+    [Required] public DefectStatus Status { get; set; } = DefectStatus.New;
+    [Required] public DefectPriority Priority { get; set; } = DefectPriority.Medium;
 
-    // Статус дефекта (например, "Новая", "В работе")
-    public string Status { get; set; } = "Новая";
+    [Required] public Guid CreatedById { get; set; }
+    public Guid? AssignedId { get; set; }
 
-    // Идентификатор пользователя, ответственного за исправление дефекта
-    public int? AssigneeId { get; set; }
+    public DateOnly? DueDate { get; set; }
 
-    // Ссылка на объект пользователя (навигационное свойство Entity Framework)
-    [ForeignKey("AssigneeId")]
-    public User? Assignee { get; set; }
-
-    // Дата создания дефекта
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ClosedAt { get; set; }
+    public bool IsDeleted { get; set; }
+
+    [Timestamp] public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+
+    public List<DefectTag> Tags { get; set; } = new();
+    public List<DefectComment> Comments { get; set; } = new();
+    public List<DefectAttachment> Attachments { get; set; } = new();
+    public List<DefectHistory> History { get; set; } = new();
 }
