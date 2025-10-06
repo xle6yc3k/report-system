@@ -1,89 +1,129 @@
-// DefectsManagement.Client/src/stores/authStore.ts
-
 import { defineStore } from 'pinia';
 import apiClient from '@/http/api';
 import router from '@/router';
+import axios from 'axios';
 
-// Типы данных
 export interface UserInfo {
-    id: number; // Соответствует вашему int ID в БД
-    username: string;
-    // name: string; // Удалено, так как JWT не всегда содержит name, но содержит username.
-    role: 'Engineer' | 'Manager' | 'Observer' | 'Admin';
+  id: number;
+  username: string;
+  role: 'Engineer' | 'Manager' | 'Observer' | 'Admin';
 }
 export interface AuthState {
-    // УДАЛЕНО: token: string | null;
-    userInfo: UserInfo | null;
-    isAuthenticated: boolean; // Добавляем явно, чтобы не зависеть от token
+  userInfo: UserInfo | null;
+  isAuthenticated: boolean;
+  isAuthLoading: boolean;
+  // добавлено
+  isInitialized: boolean;
+  isPostLogoutRedirect: boolean;
+  lastLogoutReason: 'manual' | 'expired' | 'unknown' | null;
 }
 
-// УДАЛЯЕМ вспомогательную функцию decodeToken, т.к. мы больше не декодируем токен на фронте.
-// const decodeToken = (token: string): UserInfo | null => { ... };
-
-
 export const useAuthStore = defineStore('auth', {
-    state: (): AuthState => ({
-        // УДАЛЕНО: token: localStorage.getItem('jwt_token') || null,
-        userInfo: null,
-        isAuthenticated: false, // Изначально не аутентифицирован
-    }),
-    
-    getters: {
-        // УДАЛЕНО: isAuthenticated: (state) => !!state.token,
-        userRole: (state) => state.userInfo?.role,
-    },
+  state: (): AuthState => ({
+    userInfo: null,
+    isAuthenticated: false,
+    isAuthLoading: false,      // стартуем как false, init сам включит загрузку
+    isInitialized: false,      // добавлено
+    isPostLogoutRedirect: false, // добавлено
+    lastLogoutReason: null,    // добавлено
+  }),
 
-    actions: {
-        // НОВОЕ: Метод для получения информации о пользователе с сервера
-        async fetchUserInfo() {
-            try {
-                const response = await apiClient.get('/User/me');
-                this.userInfo = response.data as UserInfo;
-                this.isAuthenticated = true; // Успешно получили данные = аутентифицированы
-            } catch (e) {
-                // Если запрос к /User/me не удался (например, 401), значит куки не действительны.
-                this.logout();
-            }
-        },
+  getters: {
+    userRole: (state) => state.userInfo?.role,
+  },
 
-        // Обновляем initialize
-        initialize() {
-            // Теперь мы всегда проверяем состояние аутентификации на сервере
-            // при загрузке приложения.
-            this.fetchUserInfo(); 
-        },
+  actions: {
+    async fetchUserInfo() {
+      // Критично: если мы в пост-редиректе, НЕ дергаем /User/me
+      if (this.isPostLogoutRedirect) {
+        this.isAuthLoading = false;
+        return;
+      }
 
-        async login(username: string, password: string) {
-            try {
-                // 1. Отправляем запрос на вход. Сервер установит куку.
-                await apiClient.post('/Auth/login', { username, password });
-                
-                // 2. Если запрос успешен, делаем второй запрос, чтобы получить данные пользователя
-                // и подтвердить, что кука была принята браузером и отправлена обратно.
-                await this.fetchUserInfo(); 
-
-                // 3. Если все прошло успешно, переходим на главную
-                router.push('/');
-                
-            } catch (error: any) {
-                console.error('Ошибка входа:', error.response?.data || error.message);
-                
-                // Убедимся, что состояние сброшено в случае неудачи
-                this.isAuthenticated = false; 
-                this.userInfo = null; 
-
-                throw new Error(error.response?.data?.message || 'Неверный логин или пароль');
-            }
-        },
-
-        logout() {
-            // Опционально: можно добавить запрос к API для удаления куки на стороне сервера
-            // apiClient.post('/Auth/logout'); 
-            
-            this.userInfo = null;
-            this.isAuthenticated = false; // Очищаем состояние
-            // УДАЛЕНО: localStorage.removeItem('jwt_token'); 
-            router.push('/login');
+      this.isAuthLoading = true;
+      try {
+        const response = await apiClient.get('/User/me');
+        this.userInfo = response.data as UserInfo;
+        this.isAuthenticated = true;
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+          this.isAuthenticated = false;
+          this.userInfo = null;
+        } else {
+          console.error('Ошибка при загрузке информации о пользователе:', error);
+          this.isAuthenticated = false;
+          this.userInfo = null;
         }
+      } finally {
+        this.isAuthLoading = false;
+      }
     },
+
+    async initialize() {
+      if (this.isInitialized) return;
+      this.isInitialized = true;
+      await this.fetchUserInfo();
+    },
+
+    async login(username: string, password: string) {
+      this.isAuthLoading = true;
+      try {
+        await apiClient.post('/Auth/login', { username, password });
+        await this.fetchUserInfo();
+        if (this.isAuthenticated) {
+          await router.replace('/'); // replace вместо push
+          return true;
+        }
+        this.userInfo = null;
+        this.isAuthenticated = false;
+        throw new Error('Неверный логин или пароль');
+        } catch (error: any) {
+            if (error?.__silenced401) {
+            // сессия истекла, всё уже обработали через forceLogout
+            this.isAuthenticated = false;
+            this.userInfo = null;
+            } else if (axios.isAxiosError(error) && error.response?.status === 401) {
+            this.isAuthenticated = false;
+            this.userInfo = null;
+            } else {
+            console.error('Ошибка при загрузке информации о пользователе:', error);
+            this.isAuthenticated = false;
+            this.userInfo = null;
+            }
+        } finally {
+            this.isAuthLoading = false;
+        }      
+    },
+
+    async logout() {
+      try {
+        await apiClient.post('/Auth/logout');
+      } catch (error) {
+        console.warn('Ошибка при запросе на выход (может, cookie уже недействителен).', error);
+      } finally {
+        await this.forceLogout('manual');
+      }
+    },
+
+    async forceLogout(reason: 'manual' | 'expired' | 'unknown' = 'unknown') {
+      this.lastLogoutReason = reason;
+
+      // локальная очистка
+      this.userInfo = null;
+      this.isAuthenticated = false;
+
+      // ставим "стоп-кран" до завершения навигации
+      this.isPostLogoutRedirect = true;
+
+      // сбросим флаг инициализации — пусть на /login мы инициализируемся заново при необходимости
+      this.isInitialized = false;
+
+      try {
+        await router.replace({ name: 'login', query: reason ? { reason } : undefined });
+      } finally {
+        // снимаем стоп-кран после навигации
+        this.isPostLogoutRedirect = false;
+      }
+    },
+  },
 });

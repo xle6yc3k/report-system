@@ -1,32 +1,44 @@
-// DefectsManagement.Client/src/http/api.ts
-
-import axios from 'axios';
-import { useAuthStore } from '@/stores/authStore';
-
+import axios, { AxiosError } from 'axios';
 const apiClient = axios.create({
-    baseURL: 'https://localhost:7143/api', 
-    headers: {
-        'Content-Type': 'application/json',
-    },
-    withCredentials: true, 
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'https://localhost:7143/api',
+  headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 });
 
-apiClient.interceptors.request.use(
-    (config) => {
-        return config;
-    },
-    (error) => Promise.reject(error)
-);
+let isLoggingOut = false;
 
 apiClient.interceptors.response.use(
-    (response) => response,
-    (error) => {
-        if (error.response && error.response.status === 401) {
-            const authStore = useAuthStore();
-            authStore.logout(); 
+  (response) => response,
+  async (error: AxiosError) => {
+    const status = error.response?.status;
+    const cfg: any = error.config || {};
+    const url = (cfg?.url || '').toLowerCase();
+
+    if (status === 401) {
+      // не триггерим logout на /auth/login и /auth/logout
+      const isAuthEndpoint =
+        url.endsWith('/auth/login') || url.endsWith('/auth/logout');
+
+      if (!isAuthEndpoint) {
+        if (!isLoggingOut) {
+          isLoggingOut = true;
+          try {
+            const { useAuthStore } = await import('@/stores/authStore');
+            const store = useAuthStore();
+            await store.forceLogout('expired');
+          } finally {
+            setTimeout(() => (isLoggingOut = false), 300);
+          }
         }
-        return Promise.reject(error);
+        // ВАЖНО: отклоняем (чтобы finally в fetchUserInfo отработал и снял isAuthLoading)
+        const err: any = new Error('SESSION_EXPIRED');
+        err.__silenced401 = true; // маркер, если захочешь игнорить логирование
+        return Promise.reject(err);
+      }
     }
+
+    return Promise.reject(error);
+  }
 );
 
 export default apiClient;

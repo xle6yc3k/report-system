@@ -1,5 +1,3 @@
-// DefectsManagement.Client/src/main.ts
-
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
@@ -12,7 +10,12 @@ const pinia = createPinia();
 app.use(pinia);
 app.use(router);
 
-const authStore = useAuthStore();
-authStore.initialize();
+async function initializeAndMount() {
+    const authStore = useAuthStore();
+    
+    await authStore.initialize();
 
-app.mount('#app');
+    app.mount('#app');
+}
+
+initializeAndMount();

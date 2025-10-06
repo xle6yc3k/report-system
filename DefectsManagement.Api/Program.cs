@@ -5,22 +5,24 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- 1. НАСТРОЙКА CORS ---
-var MyAllowSpecificOrigins = "_myAllowSpecificOrigins"; 
+var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: MyAllowSpecificOrigins,
-        policy  =>
-        {
-            policy.WithOrigins("http://localhost:5173", "https://localhost:5173") // Конкретный порт Vite
-                  .AllowAnyHeader()
-                  .AllowAnyMethod()
-                  .AllowCredentials();
-        });
+    options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
+    {
+        policy.WithOrigins(
+            "https://frontend.localhost",
+            "http://frontend.localhost"
+        )
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials();
+    });
 });
 
 builder.Services.AddControllers();
@@ -28,12 +30,12 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 
-// --- 2. НАСТРОЙКА SWAGGER/JWT ---
+// --- 2. Swagger + JWT ---
 builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token in the text input below.",
+        Description = "JWT Authorization header using the Bearer scheme.",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey,
@@ -55,12 +57,13 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
+
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
 
-// --- 3. НАСТРОЙКА АУТЕНТИФИКАЦИИ/АВТОРИЗАЦИИ ---
+// --- 3. JWT + куки ---
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -76,9 +79,11 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = builder.Configuration["Jwt:Audience"],
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? string.Empty))
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? string.Empty))
     };
 
+    // Ключевой момент — берём JWT из HttpOnly cookie
     options.Events = new JwtBearerEvents
     {
         OnMessageReceived = context =>
@@ -94,26 +99,31 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("EngineerOnly", policy => policy.RequireRole("Engineer"));
-    options.AddPolicy("ManagerOnly", policy => policy.RequireRole("Manager"));
-    options.AddPolicy("ObserverOnly", policy => policy.RequireRole("Observer"));
+    options.AddPolicy("EngineerOnly", p => p.RequireRole("Engineer"));
+    options.AddPolicy("ManagerOnly", p => p.RequireRole("Manager"));
+    options.AddPolicy("ObserverOnly", p => p.RequireRole("Observer"));
 });
 
+// --- 4. Forwarded Headers для Traefik ---
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Traefik работает как reverse-proxy, поэтому доверяем всем (в dev)
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 var app = builder.Build();
 
-// --- 4. КОНВЕЙЕР MIDDLEWARE ---
+// --- 5. Middleware pipeline ---
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-// HttpsRedirection ДОЛЖЕН идти перед UseRouting, UseCors и UseAuthentication
-app.UseHttpsRedirection();
-
-// CORS ДОЛЖЕН идти перед UseAuthorization
-app.UseCors(MyAllowSpecificOrigins); 
+app.UseForwardedHeaders();
+app.UseCors(MyAllowSpecificOrigins);
 
 app.UseAuthentication();
 app.UseAuthorization();

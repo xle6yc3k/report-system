@@ -1,4 +1,4 @@
-using DefectsManagement.Api.Services; 
+using DefectsManagement.Api.Services;
 using DefectsManagement.Api.DTOs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -28,7 +28,6 @@ namespace DefectsManagement.Api.Controllers
             return Ok(new { passwordHash = hash });
         }
 
-
         [HttpPost("login")]
         [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] LoginDto model)
@@ -42,35 +41,47 @@ namespace DefectsManagement.Api.Controllers
 
             var jwtToken = _authService.GenerateJwtToken(user);
 
-            var useSecureCookies = _config.GetValue<bool>("AppSettings:UseSecureCookies", true); 
+            var useSecureCookies = _config.GetValue<bool>("AppSettings:UseSecureCookies", true);
 
+            // --- режим отладки (возврат токена в теле) ---
             if (!useSecureCookies)
             {
-                return Ok(new 
-                { 
-                    token = jwtToken, 
-                    message = "Вход выполнен успешно. Токен возвращен в теле ответа для отладки/Swagger." 
+                return Ok(new
+                {
+                    token = jwtToken,
+                    message = "Вход выполнен успешно. Токен возвращен в теле ответа для отладки/Swagger."
                 });
             }
 
+            // --- кука для продакшена/Docker ---
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Lax,
-                Expires = DateTimeOffset.UtcNow.AddHours(1)
+                Secure = true,                    // обязательно для HTTPS
+                SameSite = SameSiteMode.None,      // чтобы фронт на frontend.localhost мог отправлять куку
+                Expires = DateTimeOffset.UtcNow.AddHours(1),
+                Path = "/",                       // кука будет доступна для всех эндпоинтов
+                // Domain = "api.localhost"        // ❌ НЕ указываем, пусть браузер сам выставит домен
             };
 
             Response.Cookies.Append(AccessTokenCookieName, jwtToken, cookieOptions);
 
             return Ok(new { message = "Вход выполнен успешно." });
         }
-        
+
         [HttpPost("logout")]
         [Authorize]
         public IActionResult Logout()
         {
-            Response.Cookies.Delete(AccessTokenCookieName);
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.None,
+                Path = "/"
+            };
+
+            Response.Cookies.Delete(AccessTokenCookieName, cookieOptions);
             return Ok(new { message = "Выход выполнен успешно." });
         }
     }

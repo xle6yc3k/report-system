@@ -5,7 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using BCrypt.Net; // Используем BCrypt
+using BCrypt.Net;
 
 namespace DefectsManagement.Api.Services
 {
@@ -51,8 +51,8 @@ namespace DefectsManagement.Api.Services
             var token = new JwtSecurityToken(
                 issuer: _config["Jwt:Issuer"],
                 audience: _config["Jwt:Audience"],
-                claims: claims,
-                expires: DateTime.Now.AddMinutes(60), // Увеличим время действия до 60 минут
+                claims: claims, 
+                expires: DateTime.Now.AddMinutes(60),
                 signingCredentials: credentials);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
