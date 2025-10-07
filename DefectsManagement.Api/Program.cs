@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.OpenApi.Models;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,6 +36,18 @@ builder.Services.AddScoped<IProjectAccess, ProjectAccess>();
 builder.Services.AddScoped<IDefectService, DefectService>();
 builder.Services.AddSingleton<IWorkflowService, WorkflowService>();
 builder.Services.AddScoped<ICommentService, CommentService>();
+builder.Services.AddScoped<IAttachmentService, AttachmentService>();
+
+// Для загрузки файлов: 50 MB, при желании меняй
+builder.Services.Configure<FormOptions>(o =>
+{
+    o.MultipartBodyLengthLimit = 50 * 1024 * 1024;
+});
+
+// Где хранить файлы (дефолт: /storage внутри контейнера)
+builder.Configuration["Storage:Root"] ??= "/storage";
+Directory.CreateDirectory(builder.Configuration["Storage:Root"]!);
+
 
 
 builder.Services.AddControllers()
