@@ -2,19 +2,19 @@ namespace DefectsManagement.Api.DTOs;
 
 public class DefectResponseDto
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; }
     public string Title { get; set; }
     public string Description { get; set; }
     public string Priority { get; set; }
     public string Status { get; set; }
     public DateTime CreatedAt { get; set; }
     
-    public AssigneeDto? Assignee { get; set; }
+    public AssignedToDto? AssignedTo { get; set; }
 }
 
-public class AssigneeDto
+public class AssignedToDto
 {
-    public int Id { get; set; }
-    public string Name { get; set; }
-    public string Username { get; set; }
+    public Guid Id { get; set; }
+    public required string Name { get; set; }
+    public required string Username { get; set; }
 }
