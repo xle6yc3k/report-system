@@ -5,13 +5,17 @@ namespace DefectsManagement.Api.Models;
 
 public class DefectHistory
 {
-    [Key] public Guid Id { get; set; } = Guid.NewGuid();
-    [Required] public Guid DefectId { get; set; }
-    [ForeignKey(nameof(DefectId))] public Defect Defect { get; set; } = null!;
+    public Guid Id { get; set; }
 
-    [Required, MaxLength(50)] public string Type { get; set; } = null!;
-    [Required] public Guid ActorId { get; set; }
-    [Required] public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
+    public Guid DefectId { get; set; }
+    public Defect Defect { get; set; } = null!;
 
-    [Required] public string PayloadJson { get; set; } = "{}";
+    public string Type { get; set; } = null!;
+
+    public Guid ActorId { get; set; }
+    public User Actor { get; set; } = null!;
+
+    public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
+
+    public string Payload { get; set; } = "{}";
 }

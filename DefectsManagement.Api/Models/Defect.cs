@@ -17,7 +17,10 @@ public class Defect
     [Required] public DefectPriority Priority { get; set; } = DefectPriority.Medium;
 
     [Required] public Guid CreatedById { get; set; }
+    public User CreatedBy { get; set; } = null!;
+
     public Guid? AssignedId { get; set; }
+    public User? AssignedTo { get; set; }
 
     public DateOnly? DueDate { get; set; }
 

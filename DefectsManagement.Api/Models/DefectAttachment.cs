@@ -17,5 +17,6 @@ public class DefectAttachment
     // путь/хеш в сторадже
     [Required, MaxLength(512)] public string StorageKey { get; set; } = null!;
 
+    public User UploadedBy { get; set; } = null!;
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 }

@@ -10,6 +10,8 @@ public class DefectComment
     [ForeignKey(nameof(DefectId))] public Defect Defect { get; set; } = null!;
 
     [Required] public Guid AuthorId { get; set; }
+    public User Author { get; set; } = null!;
+    
     [Required, MaxLength(10_000)] public string Text { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
