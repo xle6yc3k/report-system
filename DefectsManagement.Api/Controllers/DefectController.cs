@@ -20,175 +20,212 @@ public class DefectController : ControllerBase
         _context = context;
     }
 
-    private int GetCurrentUserId()
-    {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        
-        if (userIdClaim != null && int.TryParse(userIdClaim, out int userId))
-        {
-            return userId;
-        }
+    // === helpers ===
 
-        throw new InvalidOperationException("Не удалось получить ID пользователя из токена.");
-    }
-private static DefectResponseDto ToResponseDto(Defect defect)
+    private Guid GetCurrentUserId()
     {
-        return new DefectResponseDto
+        var id = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                 ?? throw new UnauthorizedAccessException("No NameIdentifier");
+        return Guid.Parse(id);
+    }
+
+    private static string ToString(DefectPriority p) => p.ToString();
+    private static string ToString(DefectStatus s) => s.ToString();
+
+    private static bool TryParsePriority(string? value, out DefectPriority result)
+        => Enum.TryParse(value, ignoreCase: true, out result);
+
+    private static bool TryParseStatus(string? value, out DefectStatus result)
+        => Enum.TryParse(value, ignoreCase: true, out result);
+
+    private static DefectResponseDto ToResponseDto(Defect d)
+        => new()
         {
-            Id = defect.Id,
-            Title = defect.Title,
-            Description = defect.Description,
-            Priority = defect.Priority,
-            Status = defect.Status,
-            CreatedAt = defect.CreatedAt,
-            Assignee = defect.Assignee != null ? new AssigneeDto
-            {
-                Id = defect.Assignee.Id,
-                Name = defect.Assignee.Name,
-                Username = defect.Assignee.Username
-            } : null
+            Id = d.Id,
+            Title = d.Title,
+            Description = d.Description,
+            Priority = ToString(d.Priority),   // DTO ожидает string
+            Status = ToString(d.Status),       // DTO ожидает string
+            CreatedAt = d.CreatedAt,
+            AssignedTo = d.AssignedTo != null
+                ? new AssignedToDto
+                {
+                    Id = d.AssignedTo.Id,
+                    Name = d.AssignedTo.Name,
+                    Username = d.AssignedTo.Username
+                }
+                : null
         };
-    }
 
-    // --- 1. Создание дефекта (Create) ---
+    private bool IsManager()  => User.IsInRole("Manager");
+    private bool IsEngineer() => User.IsInRole("Engineer");
+    // Observer есть, но он только на чтение — отдельная проверка не нужна
+
+    // === 1) Create ===
     [HttpPost]
-    // Разрешаем создание только Инженерам и Менеджерам
     [Authorize(Roles = "Engineer,Manager")]
     public async Task<IActionResult> CreateDefect([FromBody] CreateDefectDto dto)
     {
-        // Проверка существования назначенного исполнителя, если он указан
-        if (dto.AssigneeId.HasValue)
+        // базовые проверки
+        if (string.IsNullOrWhiteSpace(dto.Title))
+            return BadRequest("Title is required.");
+        if (dto.ProjectId == Guid.Empty)
+            return BadRequest("ProjectId is required.");
+
+        // если передан assignedId — разрешаем только менеджеру
+        if (dto.AssignedId.HasValue && !IsManager())
+            return Forbid("Only Manager can set AssignedId on create.");
+
+        // проверить, что проект существует (минимально)
+        var projectExists = await _context.Projects.AnyAsync(p => p.Id == dto.ProjectId);
+        if (!projectExists) return BadRequest("Project not found.");
+
+        // проверить существование исполнителя (если указан)
+        if (dto.AssignedId.HasValue)
         {
-            var assigneeExists = await _context.Users.AnyAsync(u => u.Id == dto.AssigneeId.Value);
-            if (!assigneeExists)
-            {
-                return BadRequest("Указанный исполнитель не найден.");
-            }
+            var assigneeExists = await _context.Users.AnyAsync(u => u.Id == dto.AssignedId.Value);
+            if (!assigneeExists) return BadRequest("Assigned user not found.");
         }
-        
-        var newDefect = new Defect
+
+        // приоритет: в DTO он строкой → парсим; по умолчанию Medium
+        var priority = DefectPriority.Medium;
+        if (!string.IsNullOrWhiteSpace(dto.Priority))
         {
-            Title = dto.Title,
+            if (!TryParsePriority(dto.Priority, out priority))
+                return BadRequest("Invalid priority.");
+        }
+
+        var actorId = GetCurrentUserId();
+
+        var defect = new Defect
+        {
+            ProjectId   = dto.ProjectId,
+            Title       = dto.Title,
             Description = dto.Description,
-            Priority = dto.Priority,
-            AssigneeId = dto.AssigneeId,
-            // Status по умолчанию будет "Новая", как в модели
-            // CreatedAt будет установлено автоматически
+            Priority    = priority,
+            Status      = DefectStatus.New,
+            CreatedById = actorId,
+            AssignedId  = IsManager() ? dto.AssignedId : null,
+            DueDate     = IsManager() ? dto.DueDate : null,
+            CreatedAt   = DateTime.UtcNow,
+            UpdatedAt   = DateTime.UtcNow
         };
 
-        _context.Defects.Add(newDefect);
+        // теги, если пришли
+        if (dto.Tags is { Count: > 0 })
+            defect.Tags = dto.Tags.Distinct(StringComparer.OrdinalIgnoreCase)
+                                 .Select(t => new DefectTag { DefectId = defect.Id, Tag = t })
+                                 .ToList();
+
+        _context.Defects.Add(defect);
         await _context.SaveChangesAsync();
 
-        // Загружаем исполнителя для ответа
-        await _context.Entry(newDefect).Reference(d => d.Assignee).LoadAsync();
+        // для ответа подтянем исполнителя (если есть)
+        await _context.Entry(defect).Reference(d => d.AssignedTo).LoadAsync();
 
-        return CreatedAtAction(nameof(GetDefect), new { id = newDefect.Id }, ToResponseDto(newDefect));
+        return CreatedAtAction(nameof(GetDefect), new { id = defect.Id }, ToResponseDto(defect));
     }
 
-    // --- 2. Просмотр списка дефектов (Read All) ---
+    // === 2) List ===
     [HttpGet]
-    // Доступно всем аутентифицированным пользователям
     public async Task<ActionResult<IEnumerable<DefectResponseDto>>> GetDefects()
     {
-        // Запрос дефектов с информацией об исполнителе
-        var defects = await _context.Defects
-            .Include(d => d.Assignee)
+        var items = await _context.Defects
+            .Include(d => d.AssignedTo)
             .OrderByDescending(d => d.CreatedAt)
             .ToListAsync();
-        
-        // Преобразуем список моделей в список DTO
-        return Ok(defects.Select(ToResponseDto));
+
+        return Ok(items.Select(ToResponseDto));
     }
 
-    // --- 3. Детальный просмотр дефекта (Read One) ---
-    [HttpGet("{id}")]
-    // Доступно всем аутентифицированным пользователям
-    public async Task<ActionResult<DefectResponseDto>> GetDefect(int id)
+    // === 3) Get by id ===
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<DefectResponseDto>> GetDefect(Guid id)
     {
         var defect = await _context.Defects
-            .Include(d => d.Assignee)
+            .Include(d => d.AssignedTo)
             .FirstOrDefaultAsync(d => d.Id == id);
 
-        if (defect == null)
-        {
-            return NotFound("Дефект не найден.");
-        }
+        if (defect == null) return NotFound("Defect not found.");
 
         return Ok(ToResponseDto(defect));
     }
 
-    // --- 4. Обновление дефекта (Update) ---
-    [HttpPut("{id}")]
-    // Разрешаем обновление только Инженерам и Менеджерам
+    // === 4) Update (PUT) ===
+    [HttpPut("{id:guid}")]
     [Authorize(Roles = "Engineer,Manager")]
-    public async Task<IActionResult> UpdateDefect(int id, [FromBody] UpdateDefectDto dto)
+    public async Task<IActionResult> UpdateDefect(Guid id, [FromBody] UpdateDefectDto dto)
     {
-        var defect = await _context.Defects.FindAsync(id);
+        var defect = await _context.Defects
+            .Include(d => d.AssignedTo)
+            .FirstOrDefaultAsync(d => d.Id == id);
 
-        if (defect == null)
+        if (defect == null) return NotFound("Defect not found.");
+
+        var actorId  = GetCurrentUserId();
+        var isMgr    = IsManager();
+        var isEng    = IsEngineer();
+
+        // Ограничение для Engineer: можно править только свои/назначенные и только неп финальные
+        if (isEng)
         {
-            return NotFound("Дефект не найден.");
+            var isMine = defect.CreatedById == actorId || defect.AssignedId == actorId;
+            if (!isMine) return Forbid("Engineer can update only own/assigned defects.");
+
+            if (defect.Status is DefectStatus.Closed or DefectStatus.Canceled)
+                return Forbid("Engineer cannot edit final defects.");
         }
 
-        var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+        // Текстовые поля — всем, кто прошёл проверку выше
+        if (!string.IsNullOrWhiteSpace(dto.Title)) defect.Title = dto.Title!;
+        if (!string.IsNullOrWhiteSpace(dto.Description)) defect.Description = dto.Description!;
 
-        // --- ЛОГИКА ОГРАНИЧЕНИЯ ДОСТУПА ---
-        if (userRole == "Engineer")
+        // Priority (string → enum): только менеджер
+        if (dto.Priority is not null)
         {
-            int currentUserId = GetCurrentUserId(); // Получаем ID текущего инженера
+            if (!isMgr) return Forbid("Only Manager can change priority.");
+            if (!TryParsePriority(dto.Priority, out var prio)) return BadRequest("Invalid priority.");
+            defect.Priority = prio;
+        }
 
-            // Инженер может обновлять дефект, только если он назначен исполнителем.
-            if (defect.AssigneeId != currentUserId)
+        // Status (string → enum): инженер — только в рамках собственных дефектов; менеджер — любой
+        if (dto.Status is not null)
+        {
+            if (!TryParseStatus(dto.Status, out var st)) return BadRequest("Invalid status.");
+            // (валидацию переходов по графу добавишь через IWorkflowService; тут просто назначаем)
+            if (isEng)
             {
-                return Forbid("Инженер может обновлять только дефекты, назначенные ему.");
+                // при необходимости, проверь допустимость перехода здесь
+            }
+            defect.Status = st;
+        }
+
+        // AssignedId: только менеджер. null — снимаем исполнителя.
+        if (dto.AssignedIdSet) // см. пояснение ниже
+        {
+            if (!isMgr) return Forbid("Only Manager can (re)assign.");
+            if (dto.AssignedId is null)
+            {
+                defect.AssignedId = null; // снять
+            }
+            else
+            {
+                var exists = await _context.Users.AnyAsync(u => u.Id == dto.AssignedId.Value);
+                if (!exists) return BadRequest("Assigned user not found.");
+                defect.AssignedId = dto.AssignedId;
             }
         }
-        // Менеджеры имеют полный доступ, поэтому дополнительная проверка не требуется.
-        // ------------------------------------
-        
-        // Обновление полей, если они предоставлены в DTO
-        if (dto.Title != null) defect.Title = dto.Title;
-        if (dto.Description != null) defect.Description = dto.Description;
-        if (dto.Priority != null) defect.Priority = dto.Priority;
-        
-        // В ТЗ указан жизненный цикл статусов: Новая → В работе → На проверке → Закрыта/Отменена.
-        // Здесь требуется более сложная логика, но для CRUD пока просто обновляем статус.
-        if (dto.Status != null) defect.Status = dto.Status;
-        
-        // Обработка назначенного исполнителя (AssigneeId)
-        if (dto.AssigneeId.HasValue)
+
+        // DueDate: только менеджер
+        if (dto.DueDateSet)
         {
-            // Проверка, что новый исполнитель существует
-            var assigneeExists = await _context.Users.AnyAsync(u => u.Id == dto.AssigneeId.Value);
-            if (!assigneeExists)
-            {
-                return BadRequest("Указанный исполнитель не найден.");
-            }
-            defect.AssigneeId = dto.AssigneeId.Value;
+            if (!isMgr) return Forbid("Only Manager can change due date.");
+            defect.DueDate = dto.DueDate; // может быть null
         }
-        // Специальная обработка, если клиент явно передал "assigneeId": null, чтобы сбросить исполнителя.
-        else if (dto.AssigneeId == null && Request.HttpContext.Request.ContentLength > 0)
-        {
-            // Проверяем тело запроса на наличие "assigneeId": null
-            if (Request.Body.CanSeek) Request.Body.Seek(0, SeekOrigin.Begin);
-            using var reader = new StreamReader(Request.Body, leaveOpen: true);
-            var body = await reader.ReadToEndAsync();
-            
-            // Поиск точного ключа с null-значением
-            if (body.Contains("\"assigneeId\":null", StringComparison.OrdinalIgnoreCase) || 
-                body.Contains("\"assigneeid\":null", StringComparison.OrdinalIgnoreCase))
-            {
-                defect.AssigneeId = null;
-            }
-            
-            // Сбрасываем позицию потока для дальнейшей обработки
-            Request.Body.Seek(0, SeekOrigin.Begin);
-        }
-        
+
+        defect.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return NoContent(); // 204 No Content - успешное обновление
+        return NoContent();
     }
 }
-
-
