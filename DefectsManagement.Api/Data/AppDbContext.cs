@@ -1,3 +1,7 @@
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using DefectsManagement.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,7 +30,6 @@ public class AppDbContext : DbContext
         model.Entity<User>()
             .HasKey(u => u.Id);
 
-        // навигация пользователя к участию в проектах (если есть)
         model.Entity<User>()
             .HasMany(u => u.ProjectMemberships)
             .WithOne(pm => pm.User)
@@ -57,7 +60,6 @@ public class AppDbContext : DbContext
             .Property(pm => pm.Role)
             .HasConversion<string>();
 
-        // уникальность пары (ProjectId, UserId)
         model.Entity<ProjectMember>()
             .HasIndex(pm => new { pm.ProjectId, pm.UserId })
             .IsUnique();
@@ -66,9 +68,11 @@ public class AppDbContext : DbContext
         model.Entity<Defect>()
             .HasKey(d => d.Id);
 
+        // ВАЖНО: не просим БД генерировать RowVersion — генерим сами в SaveChanges*
         model.Entity<Defect>()
             .Property(d => d.RowVersion)
-            .IsRowVersion();
+            .IsConcurrencyToken()
+            .ValueGeneratedNever(); // <-- ключевая строка
 
         model.Entity<Defect>()
             .Property(d => d.Status)
@@ -78,12 +82,10 @@ public class AppDbContext : DbContext
             .Property(d => d.Priority)
             .HasConversion<string>();
 
-        // DateOnly -> date (PostgreSQL)
         model.Entity<Defect>()
             .Property(d => d.DueDate)
-            .HasColumnType("date");
+            .HasColumnType("date"); // DateOnly -> date
 
-        // связи автора/исполнителя
         model.Entity<Defect>()
             .HasOne(d => d.CreatedBy)
             .WithMany()
@@ -96,18 +98,18 @@ public class AppDbContext : DbContext
             .HasForeignKey(d => d.AssignedId)
             .OnDelete(DeleteBehavior.SetNull);
 
-        // soft-delete на дефектах
+        // soft-delete + matching filters
         model.Entity<Defect>()
             .HasQueryFilter(d => !d.IsDeleted);
 
-        // индексы для фильтров
+        // индексы
         model.Entity<Defect>().HasIndex(d => d.ProjectId);
         model.Entity<Defect>().HasIndex(d => d.Status);
         model.Entity<Defect>().HasIndex(d => d.Priority);
         model.Entity<Defect>().HasIndex(d => d.DueDate);
         model.Entity<Defect>().HasIndex(d => new { d.ProjectId, d.Status, d.Priority });
 
-        // ===== DefectTag (join-таблица тегов) =====
+        // ===== DefectTag =====
         model.Entity<DefectTag>()
             .HasKey(dt => new { dt.DefectId, dt.Tag });
 
@@ -175,7 +177,6 @@ public class AppDbContext : DbContext
             .HasForeignKey(h => h.ActorId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // jsonb для payload (если свойство string/JsonDocument — тип в БД jsonb)
         model.Entity<DefectHistory>()
             .Property(h => h.Payload)
             .HasColumnType("jsonb");
@@ -183,10 +184,45 @@ public class AppDbContext : DbContext
         model.Entity<DefectHistory>()
             .HasIndex(h => new { h.DefectId, h.OccurredAt });
 
-        // ===== Matching query filters для дочерних, чтобы убрать варнинги 10622 =====
+        // matching filters для дочерних сущностей
         model.Entity<DefectComment>().HasQueryFilter(x => !x.Defect.IsDeleted);
         model.Entity<DefectAttachment>().HasQueryFilter(x => !x.Defect.IsDeleted);
         model.Entity<DefectHistory>().HasQueryFilter(x => !x.Defect.IsDeleted);
         model.Entity<DefectTag>().HasQueryFilter(x => !x.Defect.IsDeleted);
+    }
+
+    // === Генерим RowVersion сами, чтобы он никогда не был NULL и менялся на каждый апдейт ===
+    public override int SaveChanges()
+    {
+        EnsureRowVersion();
+        return base.SaveChanges();
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureRowVersion();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void EnsureRowVersion()
+    {
+        // INSERT
+        var added = ChangeTracker.Entries<Defect>()
+            .Where(e => e.State == EntityState.Added);
+
+        foreach (var e in added)
+        {
+            if (e.Entity.RowVersion == null || e.Entity.RowVersion.Length == 0)
+                e.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+        }
+
+        // UPDATE — генерим новое значение; старое останется в OriginalValue и попадёт в WHERE для concurrency-проверки
+        var modified = ChangeTracker.Entries<Defect>()
+            .Where(e => e.State == EntityState.Modified);
+
+        foreach (var e in modified)
+        {
+            e.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+        }
     }
 }

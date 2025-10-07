@@ -1,6 +1,7 @@
 using DefectsManagement.Api.Data;
 using DefectsManagement.Api.Services;
 using DefectsManagement.Api.Infrastructure.Json;
+using DefectsManagement.Api.Infrastructure.Auth;
 using DefectsManagement.Api.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -30,6 +31,10 @@ builder.Services.AddCors(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IProjectAccess, ProjectAccess>();
+builder.Services.AddScoped<IDefectService, DefectService>();
+builder.Services.AddSingleton<IWorkflowService, WorkflowService>();
+
 
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
