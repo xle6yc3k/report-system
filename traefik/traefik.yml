@@ -1,6 +1,8 @@
 api:
   dashboard: true
+  insecure: true
 
+accessLog: {}
 log:
   level: INFO
 
@@ -20,3 +22,5 @@ entryPoints:
           scheme: https
   websecure:
     address: ":443"
+  traefik:
+    address: ":8080"
