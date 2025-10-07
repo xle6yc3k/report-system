@@ -1,6 +1,7 @@
 using DefectsManagement.Api.Data;
 using DefectsManagement.Api.Services;
 using DefectsManagement.Api.Infrastructure.Json;
+using DefectsManagement.Api.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -125,6 +126,13 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
+}
+
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await DevSeeder.SeedAsync(db);
 }
 
 // --- 5. Middleware pipeline ---

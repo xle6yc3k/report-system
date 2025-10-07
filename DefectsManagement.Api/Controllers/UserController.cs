@@ -25,6 +25,27 @@ public class UserController : ControllerBase
         return Guid.Parse(idStr);
     }
 
+    [HttpPost]
+    [Authorize(Roles = "Manager")]
+    public async Task<IActionResult> CreateUser([FromBody] CreateUserDto dto)
+    {
+        try
+        {
+            var created = await _userService.CreateUserAsync(dto);
+            return CreatedAtAction(nameof(GetCurrentUser), new { id = created.Id }, new
+            {
+                created.Id,
+                created.Name,
+                created.Username,
+                created.Role
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
+
     // GET /api/User/me
     [HttpGet("me")]
     public IActionResult GetCurrentUser()
