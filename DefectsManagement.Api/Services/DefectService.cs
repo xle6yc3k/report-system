@@ -102,49 +102,86 @@ public class DefectService : IDefectService
         };
     }
 
+    // Можно вынести общий маппер, чтобы не дублировать код
+    private static DefectResponseDto MapToDto(Defect d) => new()
+    {
+        Id         = d.Id,
+        ProjectId  = d.ProjectId,
+        Title      = d.Title,
+        Description= d.Description,
+        Priority   = d.Priority.ToString(),
+        Status     = d.Status.ToString(),
+        CreatedAt  = d.CreatedAt,
+        AssignedId = d.AssignedId,
+        AssignedTo = d.AssignedTo == null
+            ? null
+            : new AssignedToDto
+            {
+                Id       = d.AssignedTo.Id,
+                Name     = d.AssignedTo.Name,
+                Username = d.AssignedTo.Username
+            }
+    };
+
     // === List ===
     public async Task<IEnumerable<DefectResponseDto>> ListAsync()
     {
         var list = await _db.Defects
-            .Include(d => d.AssignedTo)
+            .AsNoTracking()
+            .Where(d => !d.IsDeleted)                        // по желанию
             .OrderByDescending(d => d.CreatedAt)
+            .Select(d => new DefectResponseDto               // ⚡️ чистая проекция, без Include
+            {
+                Id         = d.Id,
+                ProjectId  = d.ProjectId,                    // 👈 есть в сущности
+                Title      = d.Title,
+                Description= d.Description,
+                Priority   = d.Priority.ToString(),
+                Status     = d.Status.ToString(),
+                CreatedAt  = d.CreatedAt,
+                AssignedId = d.AssignedId,                   // 👈
+                AssignedTo = d.AssignedTo == null
+                    ? null
+                    : new AssignedToDto
+                    {
+                        Id       = d.AssignedTo.Id,
+                        Name     = d.AssignedTo.Name,
+                        Username = d.AssignedTo.Username
+                    }
+            })
             .ToListAsync();
 
-        return list.Select(d => new DefectResponseDto
-        {
-            Id = d.Id,
-            Title = d.Title,
-            Description = d.Description,
-            Priority = d.Priority.ToString(),
-            Status = d.Status.ToString(),
-            CreatedAt = d.CreatedAt,
-            AssignedTo = d.AssignedTo != null
-                ? new AssignedToDto { Id = d.AssignedTo.Id, Name = d.AssignedTo.Name, Username = d.AssignedTo.Username }
-                : null
-        });
+        return list;
     }
 
     // === Get ===
     public async Task<DefectResponseDto?> GetAsync(Guid id)
     {
-        var d = await _db.Defects
-            .Include(x => x.AssignedTo)
-            .FirstOrDefaultAsync(x => x.Id == id);
+        var dto = await _db.Defects
+            .AsNoTracking()
+            .Where(x => x.Id == id && !x.IsDeleted)          // по желанию
+            .Select(d => new DefectResponseDto               // та же проекция
+            {
+                Id         = d.Id,
+                ProjectId  = d.ProjectId,
+                Title      = d.Title,
+                Description= d.Description,
+                Priority   = d.Priority.ToString(),
+                Status     = d.Status.ToString(),
+                CreatedAt  = d.CreatedAt,
+                AssignedId = d.AssignedId,
+                AssignedTo = d.AssignedTo == null
+                    ? null
+                    : new AssignedToDto
+                    {
+                        Id       = d.AssignedTo.Id,
+                        Name     = d.AssignedTo.Name,
+                        Username = d.AssignedTo.Username
+                    }
+            })
+            .FirstOrDefaultAsync();
 
-        if (d == null) return null;
-
-        return new DefectResponseDto
-        {
-            Id = d.Id,
-            Title = d.Title,
-            Description = d.Description,
-            Priority = d.Priority.ToString(),
-            Status = d.Status.ToString(),
-            CreatedAt = d.CreatedAt,
-            AssignedTo = d.AssignedTo != null
-                ? new AssignedToDto { Id = d.AssignedTo.Id, Name = d.AssignedTo.Name, Username = d.AssignedTo.Username }
-                : null
-        };
+        return dto;
     }
 
     // === Update ===
