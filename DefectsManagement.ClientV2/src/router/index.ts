@@ -4,6 +4,7 @@ import LoginView from '../views/LoginView.vue';
 import HomeView from '../views/HomeView.vue';
 import DefectDetailView from '../views/DefectDetailView.vue';
 import DefectEditView from '../views/DefectEditView.vue';
+import SandboxDefectsProjects from '@/views/SandboxDefectsProjects.vue';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -29,7 +30,13 @@ const routes: RouteRecordRaw[] = [
     name: 'defect-edit',
     component: DefectEditView,
     meta: { requiresAuth: true }
-  }
+  },
+  {
+    path: '/sandbox',
+    name: 'sandbox',
+    component: SandboxDefectsProjects,
+    meta: { requiresAuth: true }
+  }  
 ];
 
 const router = createRouter({

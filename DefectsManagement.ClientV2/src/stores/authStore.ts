@@ -1,106 +1,103 @@
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import api from '../http/api';
-import router from '../router';
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import router from '@/router'
+import { AuthApi, UserApi } from '@/http/api'
+import type { CurrentUserDto } from '@/types/models'
 
-type UserRole = 'Engineer' | 'Manager' | 'Observer' | 'Admin';
-
-interface UserInfo {
-  id: number;
-  username: string;
-  role: UserRole;
-}
-
-type LogoutReason = 'manual' | 'expired' | 'unknown' | null;
+type LogoutReason = 'manual' | 'expired' | 'unknown'
 
 export const useAuthStore = defineStore('auth', () => {
-  const userInfo = ref<UserInfo | null>(null);
-  const isAuthenticated = ref(false);
-  const isAuthLoading = ref(false);
-  const isInitialized = ref(false);
-  const isPostLogoutRedirect = ref(false);
-  const lastLogoutReason = ref<LogoutReason>(null);
+  // ---- state
+  const userInfo = ref<CurrentUserDto | null>(null)
+  const isAuthenticated = ref(false)
+  const isAuthLoading = ref(false)
+  const isInitialized = ref(false)
+  const isPostLogoutRedirect = ref(false)
+  const lastLogoutReason = ref<LogoutReason | null>(null)
 
+  // ---- actions
   async function fetchUserInfo() {
     if (isPostLogoutRedirect.value) {
-      isAuthLoading.value = false;
-      return;
+      // после принудительного логаута не дергаем /User/me
+      isAuthLoading.value = false
+      return
     }
 
-    isAuthLoading.value = true;
-
+    isAuthLoading.value = true
     try {
-      const response = await api.get<UserInfo>('/User/me');
-      userInfo.value = response.data;
-      isAuthenticated.value = true;
+      const { data } = await UserApi.me()
+      // data: { id: Guid(string), username: string, name: string, role: 'Engineer'|'Manager'|'Observer'|'Admin' }
+      userInfo.value = data
+      isAuthenticated.value = true
     } catch (error: any) {
+      // 401 от сервера либо «приглушенный» 401 из интерцептора
       if (error?.response?.status === 401 || error?.__silenced401) {
-        userInfo.value = null;
-        isAuthenticated.value = false;
+        userInfo.value = null
+        isAuthenticated.value = false
       } else {
-        throw error;
+        // любые прочие ошибки пробрасываем наверх
+        throw error
       }
     } finally {
-      isAuthLoading.value = false;
+      isAuthLoading.value = false
     }
   }
 
   async function initialize() {
-    if (isInitialized.value) return;
-
-    isInitialized.value = true;
-    await fetchUserInfo();
+    if (isInitialized.value) return
+    isInitialized.value = true
+    await fetchUserInfo()
   }
 
   async function login(username: string, password: string) {
-    isAuthLoading.value = true;
-
+    isAuthLoading.value = true
     try {
-      await api.post('/Auth/login', { username, password });
-      await fetchUserInfo();
-
-      const redirect = router.currentRoute.value.query.redirect as string;
-      await router.replace(redirect || '/');
+      await AuthApi.login({ username, password })
+      await fetchUserInfo()
+      const redirect = (router.currentRoute.value.query.redirect as string) || '/'
+      await router.replace(redirect)
     } finally {
-      isAuthLoading.value = false;
+      isAuthLoading.value = false
     }
   }
 
   async function logout() {
     try {
-      await api.post('/Auth/logout');
-    } catch (error) {
-      // Ignore errors
+      await AuthApi.logout()
+    } catch {
+      // ignore network/500 при логауте
     }
-
-    forceLogout('manual');
+    forceLogout('manual')
   }
 
-  function forceLogout(reason: 'manual' | 'expired' | 'unknown') {
-    userInfo.value = null;
-    isAuthenticated.value = false;
-    isAuthLoading.value = false;
-    isPostLogoutRedirect.value = true;
-    isInitialized.value = false;
-    lastLogoutReason.value = reason;
+  function forceLogout(reason: LogoutReason) {
+    userInfo.value = null
+    isAuthenticated.value = false
+    isAuthLoading.value = false
+    isInitialized.value = false
+    isPostLogoutRedirect.value = true
+    lastLogoutReason.value = reason
 
-    const query = reason ? { reason } : undefined;
+    const query = reason ? { reason } : undefined
     router.replace({ name: 'login', query }).then(() => {
-      isPostLogoutRedirect.value = false;
-    });
+      // флаг снимаем после навигации, чтобы beforeEach не зациклился
+      isPostLogoutRedirect.value = false
+    })
   }
 
   return {
+    // state
     userInfo,
     isAuthenticated,
     isAuthLoading,
     isInitialized,
     isPostLogoutRedirect,
     lastLogoutReason,
+    // actions
     initialize,
     fetchUserInfo,
     login,
     logout,
-    forceLogout
-  };
-});
+    forceLogout,
+  }
+})
